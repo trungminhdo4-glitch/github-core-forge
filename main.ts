@@ -91,8 +91,10 @@ async function main(): Promise<void> {
   process.stdout.write('[entry] registered; waiting for the env to say done\n');
 
   await waitForDone();
+  // Keep-alive sockets from the suite would hold close() open; the process exits right after anyway.
+  server.closeAllConnections();
   server.close();
-  process.stdout.write('[entry] done\n');
+  process.stdout.write('[forge] done\n');
 }
 
 try {
