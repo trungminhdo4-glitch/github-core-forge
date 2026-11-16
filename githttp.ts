@@ -193,9 +193,7 @@ function v2Command(res: ServerResponse, repo: Repo, packets: Packet[]): void {
   }
   if (command === 'fetch') {
     // Identical fetches against an unchanged repository (a burst of clones) share one answer.
-    const key = `${repo.version}
-${args.filter((a) => !a.startsWith('agent=')).join('
-')}`;
+    const key = `${repo.version}|${args.filter((a) => !a.startsWith('agent=')).join('|')}`;
     let out = fetchCache.get(repo)?.get(key);
     if (!out) {
       out = v2Fetch(repo, args);
