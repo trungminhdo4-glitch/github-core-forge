@@ -71,6 +71,8 @@ export interface Repo {
   issues: Issue[];
   issueByNumber: Map<number, Issue>;
   nextNumber: number;
+  /** Bumped on every ref or object change: keys the fetch answer cache. */
+  version: number;
 }
 
 function parseNow(): number {
@@ -148,6 +150,7 @@ export class Store {
       issues: [],
       issueByNumber: new Map(),
       nextNumber: 1,
+      version: 0,
     };
     this.repos.set(name.toLowerCase(), repo);
     this.repoById.set(repo.id, repo);
@@ -179,6 +182,7 @@ export class Store {
   }
 
   setRef(repo: Repo, ref: string, oid: string): void {
+    repo.version += 1;
     if (oid === ZERO_OID) repo.refs.delete(ref);
     else repo.refs.set(ref, oid);
     repo.pushedAt = this.now();

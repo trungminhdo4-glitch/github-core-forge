@@ -138,6 +138,8 @@ export function serializeCommit(c: Commit): Buffer {
 /** One store per repository (repositories never share objects, so deleting one frees it). */
 export class ObjectDB {
   objects = new Map<string, GitObj>();
+  /** Objects whose whole closure is known to be present (so a push's check can stop at them). */
+  connected = new Set<string>();
   /** Parsed commit cache. */
   private commits = new Map<string, Commit>();
 
@@ -589,7 +591,7 @@ function sendTree(db: ObjectDB, treeOid: string, held: Set<string>, sent: Set<st
 }
 
 /** Is every object reachable from `tip` present? (A push must not leave a ref dangling.) */
-export function isComplete(db: ObjectDB, tip: string, known: Set<string>): boolean {
+export function isComplete(db: ObjectDB, tip: string, known: Set<string> = db.connected): boolean {
   const stack = [tip];
   const seen = new Set<string>();
   while (stack.length) {

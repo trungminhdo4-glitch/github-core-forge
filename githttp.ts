@@ -167,6 +167,8 @@ export function handleUploadPack(res: ServerResponse, repo: Repo, body: Buffer, 
   v0UploadPack(res, repo, decoded.packets);
 }
 
+const fetchCache = new WeakMap<Repo, Map<string, Buffer> & { version: number }>();
+
 function v2Command(res: ServerResponse, repo: Repo, packets: Packet[]): void {
   let command = '';
   const args: string[] = [];
@@ -190,7 +192,21 @@ function v2Command(res: ServerResponse, repo: Repo, packets: Packet[]): void {
     return;
   }
   if (command === 'fetch') {
-    send(res, 200, 'application/x-git-upload-pack-result', v2Fetch(repo, args));
+    // Identical fetches against an unchanged repository (a burst of clones) share one answer.
+    const key = `${repo.version}
+${args.filter((a) => !a.startsWith('agent=')).join('
+')}`;
+    let out = fetchCache.get(repo)?.get(key);
+    if (!out) {
+      out = v2Fetch(repo, args);
+      let perRepo = fetchCache.get(repo);
+      if (!perRepo || perRepo.version !== repo.version) {
+        perRepo = Object.assign(new Map<string, Buffer>(), { version: repo.version });
+        fetchCache.set(repo, perRepo);
+      }
+      if (perRepo.size < 64 && out.length < 32 * 1024 * 1024) perRepo.set(key, out);
+    }
+    send(res, 200, 'application/x-git-upload-pack-result', out);
     return;
   }
   sendJson(res, 400, `unknown command ${command}`);
@@ -361,6 +377,7 @@ export function handleReceivePack(res: ServerResponse, repo: Repo, body: Buffer)
         if (!repo.db.has(o.oid)) {
           repo.db.putKnown(o.oid, o.type, o.data);
           added.push(o.oid);
+          repo.version += 1;
         }
       }
     }
@@ -368,9 +385,8 @@ export function handleReceivePack(res: ServerResponse, repo: Repo, body: Buffer)
     unpack = (err instanceof Error ? err.message : String(err)).replace(/\n/g, ' ');
   }
   const lines: string[] = [unpack === 'ok' ? 'unpack ok\n' : `unpack ${unpack}\n`];
-  const known = new Set<string>();
   for (const cmd of commands) {
-    const reason = unpack !== 'ok' ? 'unpacker error' : checkCommand(repo, cmd, known);
+    const reason = unpack !== 'ok' ? 'unpacker error' : checkCommand(repo, cmd);
     if (reason === null) {
       store.setRef(repo, cmd.ref, cmd.newOid);
       lines.push(`ok ${cmd.ref}\n`);
@@ -383,7 +399,7 @@ export function handleReceivePack(res: ServerResponse, repo: Repo, body: Buffer)
   send(res, 200, 'application/x-git-receive-pack-result', out);
 }
 
-function checkCommand(repo: Repo, cmd: RefCommand, known: Set<string>): string | null {
+function checkCommand(repo: Repo, cmd: RefCommand): string | null {
   if (!cmd.ref.startsWith('refs/') || cmd.ref.includes('..') || /[\s~^:?*[\\]/.test(cmd.ref)) return 'funny refname';
   const current = repo.refs.get(cmd.ref) ?? ZERO_OID;
   if (cmd.newOid === ZERO_OID) {
@@ -395,7 +411,7 @@ function checkCommand(repo: Repo, cmd: RefCommand, known: Set<string>): string |
     return null;
   }
   if (!repo.db.has(cmd.newOid)) return 'missing necessary objects';
-  if (!isComplete(repo.db, cmd.newOid, known)) return 'missing necessary objects';
+  if (!isComplete(repo.db, cmd.newOid)) return 'missing necessary objects';
   if (current === ZERO_OID) {
     if (cmd.oldOid !== ZERO_OID) return 'stale info';
     return null;
