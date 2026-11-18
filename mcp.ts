@@ -2,7 +2,7 @@
 // Speaks revision 2026-07-28 (server/discover, no handshake) and the handshake revisions through
 // initialize + notifications/initialized. The tools act on the same store as REST and GraphQL.
 
-import type { IncomingMessage, ServerResponse } from 'node:http';
+import type { Req as IncomingMessage, Res as ServerResponse } from './http1.ts';
 import { ApiError, createIssue, createPull, createRepo, mergePull, pullFiles, updateIssue } from './ops.ts';
 import { commentJson, issueJson, pullJson, repoJson } from './rest.ts';
 import { store, type Issue, type Repo } from './store.ts';

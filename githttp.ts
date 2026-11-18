@@ -1,7 +1,7 @@
 // git smart HTTP: info/refs, git-upload-pack (protocol v2, with a v0 fallback) and
 // git-receive-pack (v0 with report-status, side-band-64k and delete-refs).
 
-import type { ServerResponse } from 'node:http';
+import type { Res as ServerResponse } from './http1.ts';
 import { ZERO_OID, buildPack, collectForFetch, isComplete, isOid, parseTag, readPack, type GitObj } from './git.ts';
 import { store, type Repo } from './store.ts';
 

@@ -39,7 +39,8 @@ env reports done. Every API call needs `Authorization: Bearer $MAKEFUN_SHOP_TOKE
 | File | What it holds |
 | --- | --- |
 | `main.ts` | the entry/env lifecycle (unchanged from the starter) |
-| `app.ts` | the HTTP server: routing, auth, request ids, JSON bodies |
+| `app.ts` | routing, auth, request ids, JSON bodies, the repeated issue-read cache |
+| `http1.ts` | the HTTP/1.1 wire layer on `node:net`: keep-alive, pipelining, chunked bodies, one write per answer |
 | `git.ts` | objects, trees, commits, tags, pack reading/writing, fetch reachability |
 | `githttp.ts` | smart HTTP: advertisements, v2 `ls-refs`/`fetch`, v0 upload-pack, receive-pack |
 | `store.ts` | users, repositories, refs, labels, issues, pull requests, the logical clock |
