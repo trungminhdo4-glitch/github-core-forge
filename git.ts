@@ -142,6 +142,8 @@ export class ObjectDB {
   connected = new Set<string>();
   /** Parsed commit cache. */
   private commits = new Map<string, Commit>();
+  /** Parsed tree cache: a tree oid is content-addressed, so a parsed tree never goes stale. */
+  private trees = new Map<string, TreeEntry[]>();
 
   has(oid: string): boolean {
     return this.objects.has(oid);
@@ -172,9 +174,13 @@ export class ObjectDB {
   }
 
   tree(oid: string): TreeEntry[] | undefined {
+    const cached = this.trees.get(oid);
+    if (cached !== undefined) return cached;
     const o = this.objects.get(oid);
     if (!o || o.type !== 'tree') return undefined;
-    return parseTree(o.data);
+    const entries = parseTree(o.data);
+    this.trees.set(oid, entries);
+    return entries;
   }
 
   /** Peel tags until a non-tag object. */
