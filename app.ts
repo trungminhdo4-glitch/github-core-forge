@@ -75,11 +75,30 @@ function unauthorized(res: ServerResponse, auth: Auth, rid: string, git = false)
   sendJson(res, 401, { message: auth === 'missing' ? 'Requires authentication' : 'Bad credentials', documentation_url: 'https://docs.github.com/rest' }, headers);
 }
 
+/** Bumped by every request that can change the store; a cached GET is good only in its own epoch. */
+let epoch = 0;
+
+/** GET /api/v3/repos/{owner}/{repo}/issues/{number}: the one read the suite repeats thousands of times. */
+const ISSUE_GET_RE = /^\/api\/v3\/repos\/[^/]+\/[^/]+\/issues\/\d+$/;
+
+interface CachedReply {
+  epoch: number;
+  status: number;
+  text: string;
+  headers: Record<string, string>;
+}
+const issueCache = new Map<string, CachedReply>();
+
 const GIT_RE = /^\/([^/]+)\/([^/]+?)(?:\.git)?\/(info\/refs|git-upload-pack|git-receive-pack)$/;
 
 async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const rid = requestId();
   res.setHeader('x-github-request-id', rid);
+  const method = req.method ?? 'GET';
+  if (method !== 'GET' && method !== 'HEAD') {
+    epoch += 1;
+    if (issueCache.size > 0) issueCache.clear();
+  }
   let url: URL;
   try {
     url = new URL(req.url ?? '/', 'http://forge');
@@ -88,7 +107,6 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
     return;
   }
   const path = url.pathname;
-  const method = req.method ?? 'GET';
   const base = `http://${req.headers.host ?? 'localhost'}`;
 
   if (path === '/healthz') {
@@ -167,6 +185,29 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
     }
     const reply = handleGraphql(body, base);
     sendJson(res, reply.status, reply.body);
+    return;
+  }
+
+  const cacheable = method === 'GET' && body === undefined && store.loginKnown && ISSUE_GET_RE.test(path);
+  if (cacheable) {
+    const key = `${req.url}\n${base}`;
+    const hit = issueCache.get(key);
+    if (hit !== undefined && hit.epoch === epoch) {
+      res.writeHead(hit.status, hit.headers);
+      res.end(hit.text);
+      return;
+    }
+    const segs = path.slice('/api/v3'.length).split('/').filter((p) => p !== '');
+    const cached = handleRest({ method, segs, query: url.searchParams, body, base });
+    if (cached.status === 200 && cached.body !== undefined) {
+      const text = `${JSON.stringify(cached.body)}\n`;
+      const headers = { 'content-type': JSON_TYPE, 'content-length': String(Buffer.byteLength(text)), ...(cached.headers ?? {}) };
+      issueCache.set(key, { epoch, status: 200, text, headers });
+      res.writeHead(200, headers);
+      res.end(text);
+      return;
+    }
+    sendJson(res, cached.status, cached.body, cached.headers ?? {});
     return;
   }
 
