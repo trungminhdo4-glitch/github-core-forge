@@ -142,6 +142,10 @@ export class ObjectDB {
   connected = new Set<string>();
   /** Parsed commit cache. */
   private commits = new Map<string, Commit>();
+  /** Parsed tree cache. Tree oids are content-addressed, so a parsed tree never goes stale. */
+  private trees = new Map<string, TreeEntry[]>();
+  /** Tree-build cache: reuse the oid when a directory's entries are unchanged. */
+  private treeBuilds = new Map<string, string>();
 
   has(oid: string): boolean {
     return this.objects.has(oid);
@@ -172,9 +176,13 @@ export class ObjectDB {
   }
 
   tree(oid: string): TreeEntry[] | undefined {
+    const cached = this.trees.get(oid);
+    if (cached !== undefined) return cached;
     const o = this.objects.get(oid);
     if (!o || o.type !== 'tree') return undefined;
-    return parseTree(o.data);
+    const entries = parseTree(o.data);
+    this.trees.set(oid, entries);
+    return entries;
   }
 
   /** Peel tags until a non-tag object. */
@@ -261,7 +269,12 @@ export class ObjectDB {
     const write = (d: Dir): string => {
       const entries = [...d.files];
       for (const [name, sub] of d.dirs) entries.push({ mode: '40000', name, oid: write(sub) });
-      return this.put('tree', serializeTree(entries));
+      const key = entries.map((e) => `${e.mode}\0${e.name}\0${e.oid}`).sort().join('\x01');
+      const hit = this.treeBuilds.get(key);
+      if (hit !== undefined) return hit;
+      const oid = this.put('tree', serializeTree(entries));
+      this.treeBuilds.set(key, oid);
+      return oid;
     };
     return write(root);
   }
